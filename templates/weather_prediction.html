@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% set active_page = 'predict' %}
+{% block title %}天气预测 · 南阳{% endblock %}
+{% block header_title %}未来7天预报{% endblock %}
+{% block header_subtitle %}南阳 · 数据驱动预测{% endblock %}
+
+{% block extra_css %}
+        .card {
+            background:var(--card); border:1px solid var(--border);
+            border-radius:var(--radius); box-shadow:var(--shadow); padding:28px; margin-bottom:20px;
+        }
+        .card-title { font-size:1.05rem; font-weight:600; margin-bottom:16px; }
+        .chart-wrap { width:100%; height:420px; }
+        .fc-table { width:100%; border-collapse:collapse; font-size:0.925rem; }
+        .fc-table th {
+            background:#f6f8fb; color:var(--text-secondary); padding:11px 10px; text-align:center;
+            font-weight:600; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.5px;
+            border-bottom:2px solid var(--border);
+        }
+        .fc-table td { padding:11px 10px; text-align:center; border-bottom:1px solid var(--border); }
+        .fc-table tr:hover td { background:#fafbfc; }
+        .fc-table .date-col { font-weight:600; }
+        .t-hi { color:#e8593a; font-weight:700; }
+        .t-lo { color:#3b82f6; font-weight:700; }
+        .t-av { color:#10b981; font-weight:700; }
+        .t-hu { color:#06b6d4; }
+        .t-pr { color:#7c3aed; }
+        .t-wi { color:#f59e0b; }
+        .row { display:flex; gap:20px; flex-wrap:wrap; }
+        .row > * { flex:1; min-width:380px; }
+        .legend { display:flex; justify-content:center; gap:24px; margin-top:8px; flex-wrap:wrap; font-size:0.85rem; color:var(--text-secondary); }
+        .legend span { display:flex; align-items:center; gap:6px; }
+        .legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+        footer { text-align:center; padding:24px; color:var(--text-secondary); font-size:0.85rem; margin-top:8px; }
+{% endblock %}
+
+{% block content %}
+        <!-- Table -->
+        <div class="card">
+            <div class="card-title">逐日预报</div>
+            <table class="fc-table">
+                <thead><tr>
+                    <th>日期</th><th>最高温</th><th>最低温</th><th>平均温</th>
+                    <th>湿度</th><th>降水量</th><th>风速</th>
+                </tr></thead>
+                <tbody id="prediction-table-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Temperature chart -->
+        <div class="card">
+            <div class="card-title">温度趋势</div>
+            <div class="chart-wrap" id="temperature-chart"></div>
+            <div class="legend">
+                <span><i class="dot" style="background:#e8593a"></i>最高温</span>
+                <span><i class="dot" style="background:#3b82f6"></i>最低温</span>
+                <span><i class="dot" style="background:#10b981"></i>平均温</span>
+            </div>
+        </div>
+
+        <!-- Humidity & Precipitation -->
+        <div class="row">
+            <div class="card">
+                <div class="card-title">湿度</div>
+                <div class="chart-wrap" id="humidity-chart"></div>
+            </div>
+            <div class="card">
+                <div class="card-title">降水量</div>
+                <div class="chart-wrap" id="precipitation-chart"></div>
+            </div>
+        </div>
+
+        <!-- Wind -->
+        <div class="card">
+            <div class="card-title">风速</div>
+            <div class="chart-wrap" id="wind-chart" style="height:340px;"></div>
+        </div>
+
+        <footer>天气预测系统 · 南阳 · <span id="update-time"></span></footer>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+    document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+
+    async function loadPredictionData() {
+        if (typeof echarts === 'undefined') { console.warn('echarts 未加载，跳过图表渲染'); return; }
+        try {
+            const r = await fetch('/prediction_data'); const d = await r.json();
+            if (d.error) { alert('加载失败: '+d.error); return; }
+            const tbody = document.getElementById('prediction-table-body');
+            tbody.innerHTML = '';
+            for (let i=0; i<d.prediction_dates.length; i++) {
+                tbody.insertAdjacentHTML('beforeend', `<tr>
+                    <td class="date-col">${d.prediction_dates[i].slice(5)}</td>
+                    <td class="t-hi">${d.temperature_max[i].toFixed(1)}°</td>
+                    <td class="t-lo">${d.temperature_min[i].toFixed(1)}°</td>
+                    <td class="t-av">${d.temperature_mean[i].toFixed(1)}°</td>
+                    <td class="t-hu">${d.humidity_mean[i].toFixed(0)}%</td>
+                    <td class="t-pr">${d.precipitation[i].toFixed(1)} mm</td>
+                    <td class="t-wi">${d.wind_speed_max[i].toFixed(1)} km/h</td>
+                </tr>`);
+            }
+            renderTemp(d.prediction_dates, d);
+            renderHumidity(d.prediction_dates, d);
+            renderPrecip(d.prediction_dates, d);
+            renderWind(d.prediction_dates, d);
+        } catch(e) { console.error(e); alert('加载失败: '+e.message); }
+    }
+
+    function baseOpt() {
+        return {
+            tooltip:{trigger:'axis'},
+            grid:{left:'8%',right:'4%',top:'8%',bottom:'10%',containLabel:true},
+            xAxis:{type:'category',data:[],axisLabel:{fontSize:11}},
+            yAxis:{type:'value',splitLine:{lineStyle:{type:'dashed',color:'#e8ecf1'}}},
+            series:[]
+        };
+    }
+
+    function renderTemp(dates,d) {
+        const chart = echarts.init(document.getElementById('temperature-chart'));
+        chart.setOption({
+            ...baseOpt(),
+            legend:{data:['最高温','最低温','平均温'],bottom:0},
+            xAxis:{...baseOpt().xAxis,data:dates.map(x=>x.slice(5))},
+            yAxis:{...baseOpt().yAxis,name:'°C'},
+            series:[
+                {name:'最高温',type:'line',data:d.temperature_max,smooth:true,lineStyle:{width:2.5,color:'#e8593a'},itemStyle:{color:'#e8593a'},symbol:'circle',symbolSize:7},
+                {name:'最低温',type:'line',data:d.temperature_min,smooth:true,lineStyle:{width:2.5,color:'#3b82f6'},itemStyle:{color:'#3b82f6'},symbol:'circle',symbolSize:7},
+                {name:'平均温',type:'line',data:d.temperature_mean,smooth:true,lineStyle:{width:2.5,color:'#10b981'},itemStyle:{color:'#10b981'},symbol:'circle',symbolSize:7}
+            ]
+        });
+        window.addEventListener('resize',()=>chart.resize());
+    }
+    function renderHumidity(dates,d) {
+        const chart = echarts.init(document.getElementById('humidity-chart'));
+        chart.setOption({
+            ...baseOpt(),
+            xAxis:{...baseOpt().xAxis,data:dates.map(x=>x.slice(5))},
+            yAxis:{...baseOpt().yAxis,name:'%',min:0,max:100},
+            series:[{name:'湿度',type:'line',data:d.humidity_mean,smooth:true,lineStyle:{width:2.5,color:'#06b6d4'},itemStyle:{color:'#06b6d4'},symbol:'circle',symbolSize:7,areaStyle:{color:'rgba(6,182,212,0.08)'}}]
+        });
+        window.addEventListener('resize',()=>chart.resize());
+    }
+    function renderPrecip(dates,d) {
+        const chart = echarts.init(document.getElementById('precipitation-chart'));
+        chart.setOption({
+            ...baseOpt(),
+            xAxis:{...baseOpt().xAxis,data:dates.map(x=>x.slice(5))},
+            yAxis:{...baseOpt().yAxis,name:'mm'},
+            series:[{name:'降水量',type:'bar',data:d.precipitation,itemStyle:{color:'#7c3aed',borderRadius:[6,6,0,0]}}]
+        });
+        window.addEventListener('resize',()=>chart.resize());
+    }
+    function renderWind(dates,d) {
+        const chart = echarts.init(document.getElementById('wind-chart'));
+        chart.setOption({
+            ...baseOpt(),
+            xAxis:{...baseOpt().xAxis,data:dates.map(x=>x.slice(5))},
+            yAxis:{...baseOpt().yAxis,name:'km/h'},
+            series:[{name:'风速',type:'line',data:d.wind_speed_max,smooth:true,lineStyle:{width:2.5,color:'#f59e0b'},itemStyle:{color:'#f59e0b'},symbol:'diamond',symbolSize:8,areaStyle:{color:'rgba(245,158,11,0.06)'}}]
+        });
+        window.addEventListener('resize',()=>chart.resize());
+    }
+
+    document.addEventListener('DOMContentLoaded', loadPredictionData);
+    </script>
+{% endblock %}

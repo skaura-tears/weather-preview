@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% set active_page = 'history' %}
+{% block title %}历史数据 · 天气预测{% endblock %}
+{% block header_title %}历史数据{% endblock %}
+{% block header_subtitle %}南阳 · 点击指标切换显示，支持多选{% endblock %}
+
+{% block extra_css %}
+        .card {
+            background:var(--card); border:1px solid var(--border);
+            border-radius:var(--radius); box-shadow:var(--shadow); padding:28px; margin-bottom:20px;
+        }
+        .controls { display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:24px; }
+        .pills { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+        .pill {
+            padding:7px 20px; font-size:0.85rem; font-weight:500;
+            border:1px solid var(--border); border-radius:99px;
+            background:var(--card); color:var(--text-secondary); cursor:pointer;
+            transition:all 0.12s; user-select:none;
+        }
+        .pill:hover { border-color:#c4cdd9; }
+        .pill.active { color:#fff; border-color:var(--feature-color); background:var(--feature-color); }
+        .filter-bar {
+            display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;
+            padding:14px 20px; background:#f6f8fb; border-radius:8px;
+            font-size:0.9rem;
+        }
+        .filter-bar label { font-weight:500; color:var(--text-secondary); }
+        .filter-bar input {
+            padding:7px 14px; border:1px solid var(--border); border-radius:6px;
+            font-size:0.9rem; font-family:inherit;
+        }
+        .filter-bar input:focus { outline:none; border-color:var(--blue); }
+        .btn {
+            padding:7px 22px; border:none; border-radius:6px;
+            font-size:0.85rem; font-weight:500; cursor:pointer; transition:all 0.12s;
+        }
+        .btn-primary { background:var(--navy); color:#fff; }
+        .btn-outline { background:var(--card); color:var(--text-secondary); border:1px solid var(--border); }
+        .charts-area { display:flex; flex-direction:column; gap:16px; }
+        .chart-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:20px; }
+        .chart-card-title { font-size:0.9rem; font-weight:600; color:var(--text-secondary); margin-bottom:8px; }
+        .chart-inner { width:100%; height:260px; }
+        footer { text-align:center; padding:24px; color:var(--text-secondary); font-size:0.85rem; margin-top:8px; }
+{% endblock %}
+
+{% block content %}
+        <div class="card">
+            <div class="controls">
+                <div class="pills" id="feature-pills"></div>
+                <div class="filter-bar">
+                    <label>起始</label><input type="date" id="start-date">
+                    <label>截止</label><input type="date" id="end-date">
+                    <button class="btn btn-primary" onclick="refresh()">筛选</button>
+                    <button class="btn btn-outline" onclick="resetFilter()">重置</button>
+                </div>
+            </div>
+            <div class="chart-card"><div class="chart-inner" id="historical-chart" style="height:460px;"></div></div>
+        </div>
+
+        <footer>天气预测系统 · 历史数据 · <span id="update-time"></span></footer>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+    document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+
+    const today = new Date();
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(today.getDate()-30);
+    document.getElementById('start-date').valueAsDate = thirtyDaysAgo;
+    document.getElementById('end-date').valueAsDate = today;
+
+    const FEATURES = [
+        { key:'temperature_mean', name:'平均温度', unit:'°C', color:'#10b981' },
+        { key:'temperature_max', name:'最高温度', unit:'°C', color:'#e8593a' },
+        { key:'temperature_min', name:'最低温度', unit:'°C', color:'#3b82f6' },
+        { key:'humidity_mean', name:'湿度', unit:'%', color:'#06b6d4' },
+        { key:'precipitation', name:'降水量', unit:'mm', color:'#7c3aed' },
+        { key:'wind_speed_max', name:'风速', unit:'km/h', color:'#f59e0b' },
+    ];
+
+    let selectedFeatures = new Set(['temperature_mean']);
+
+    const pillsContainer = document.getElementById('feature-pills');
+    FEATURES.forEach(f => {
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = f.name;
+        btn.style.setProperty('--feature-color', f.color);
+        if (selectedFeatures.has(f.key)) btn.classList.add('active');
+        btn.addEventListener('click', () => {
+            if (selectedFeatures.has(f.key)) {
+                if (selectedFeatures.size > 1) selectedFeatures.delete(f.key);
+            } else {
+                selectedFeatures.add(f.key);
+            }
+            document.querySelectorAll('.pill').forEach((b,i) => {
+                b.classList.toggle('active', selectedFeatures.has(FEATURES[i].key));
+            });
+            refresh();
+        });
+        pillsContainer.appendChild(btn);
+    });
+
+    async function refresh() {
+        const sd = document.getElementById('start-date').value;
+        const ed = document.getElementById('end-date').value;
+        if (!sd || !ed) { alert('请选择日期范围'); return; }
+        if (sd > ed) { alert('起始不能晚于截止'); return; }
+
+        const keys = [...selectedFeatures];
+        const promises = keys.map(key =>
+            fetch(`/historical_data?start_date=${sd}&end_date=${ed}&feature=${key}`).then(r => r.json())
+        );
+        const results = await Promise.all(promises);
+        const valid = results.filter(r => !r.error);
+        if (!valid.length) return;
+        renderChart(valid);
+    }
+
+    function renderChart(dataSets) {
+        if (typeof echarts === 'undefined') { console.warn('echarts 未加载，跳过历史图表渲染'); return; }
+        const dates = dataSets[0].dates;
+        const yAxes = []; const series = []; let rightIdx = 0;
+
+        dataSets.forEach(d => {
+            const feat = FEATURES.find(f => f.key === d.feature_name) || {};
+            const isTemp = feat.key.startsWith('temperature');
+            if (isTemp) {
+                if (!yAxes.find(a => a.name === '°C')) {
+                    yAxes.push({ type:'value', name:'°C', position:'left',
+                        splitLine:{lineStyle:{type:'dashed',color:'#e8ecf1'}},
+                        axisLabel:{fontSize:10} });
+                }
+                const idx = yAxes.findIndex(a => a.name === '°C');
+                series.push({ name:feat.name, type:'line', yAxisIndex:idx, data:d.feature_data,
+                    smooth:false, symbol:'none', lineStyle:{width:2,color:feat.color} });
+            } else {
+                yAxes.push({ type:'value', name:feat.unit, position:'right', offset:rightIdx*50,
+                    splitLine:{show:false}, axisLabel:{fontSize:10,color:feat.color},
+                    axisLine:{lineStyle:{color:feat.color}} });
+                series.push({ name:feat.name, type:'line', yAxisIndex:yAxes.length-1, data:d.feature_data,
+                    smooth:false, symbol:'none', lineStyle:{width:2,color:feat.color} });
+                rightIdx++;
+            }
+        });
+
+        const dom = document.getElementById('historical-chart');
+        echarts.dispose(dom);
+        const chart = echarts.init(dom);
+        chart.setOption({
+            tooltip:{trigger:'axis'},
+            legend:{bottom:0},
+            grid:{left:'8%',right:'20%',top:'6%',bottom:'14%',containLabel:true},
+            xAxis:{type:'category',data:dates,axisLabel:{fontSize:10,formatter:v=>v.slice(5)}},
+            yAxis: yAxes, series: series,
+            dataZoom:[{type:'inside',start:0,end:100},{type:'slider',height:22,bottom:2}]
+        });
+        window.addEventListener('resize',()=>chart.resize());
+    }
+
+    function resetFilter() {
+        document.getElementById('start-date').valueAsDate = thirtyDaysAgo;
+        document.getElementById('end-date').valueAsDate = today;
+        refresh();
+    }
+
+    document.addEventListener('DOMContentLoaded', refresh);
+    </script>
+{% endblock %}

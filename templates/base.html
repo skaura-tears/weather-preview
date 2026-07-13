@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}南阳天气预测{% endblock %}</title>
+    <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
+    <style>
+        :root {
+            --bg: #eef2f7;
+            --card: #ffffff;
+            --navy: #1e3a5f;
+            --text: #1a2332;
+            --text-secondary: #5f6b7a;
+            --border: #e2e7ee;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+            --green: #16a34a;
+            --amber: #d97706;
+            --red: #dc2626;
+            --blue: #2563eb;
+            --teal: #06b6d4;
+            --purple: #7c3aed;
+            --radius: 10px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .container { max-width: 1440px; margin: 0 auto; padding: 28px 24px; }
+
+        /* Header */
+        .header {
+            background: var(--navy);
+            border-radius: var(--radius);
+            padding: 36px 40px;
+            margin-bottom: 24px;
+            color: #fff;
+            text-align: center;
+        }
+        .header h1 { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.3px; }
+        .header p { margin-top: 6px; opacity: 0.7; font-size: 0.95rem; }
+
+        /* Nav */
+        .nav {
+            display: flex; justify-content: center; gap: 4px; margin-top: 24px;
+        }
+        .nav a {
+            padding: 8px 22px; font-size: 0.9rem; font-weight: 500;
+            color: rgba(255,255,255,0.65); text-decoration: none;
+            border-radius: 6px; transition: all 0.15s;
+        }
+        .nav a:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .nav a.active { color: #fff; background: rgba(255,255,255,0.14); }
+
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{% block header_title %}{% endblock %}</h1>
+            <p>{% block header_subtitle %}{% endblock %}</p>
+            <div class="nav">
+                {% set active = active_page|default('') %}
+                <a href="{{ url_for('model_evaluation') }}" {% if active == 'model' %}class="active"{% endif %}>模型评估</a>
+                <a href="{{ url_for('weather_prediction') }}" {% if active == 'predict' %}class="active"{% endif %}>天气预测</a>
+                <a href="{{ url_for('historical_analysis') }}" {% if active == 'history' %}class="active"{% endif %}>历史数据</a>
+                <a href="{{ url_for('chat_page') }}" {% if active == 'chat' %}class="active"{% endif %}>AI 助手</a>
+            </div>
+            {% block header_extra %}{% endblock %}
+        </div>
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

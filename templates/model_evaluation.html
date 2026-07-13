@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% set active_page = 'model' %}
+{% block title %}模型评估 · 南阳天气预测{% endblock %}
+{% block header_title %}模型评估{% endblock %}
+{% block header_subtitle %}训练损失 · 模型对比 · 版本管理{% endblock %}
+
+{% block extra_css %}
+        .section-title {
+            font-size: 1.35rem; font-weight: 600; color: var(--text);
+            margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--border);
+        }
+        .card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: var(--shadow);
+            padding: 28px; margin-bottom: 20px;
+        }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 18px; flex-wrap: wrap; gap: 12px;
+        }
+        .card-title { font-size: 1.05rem; font-weight: 600; color: var(--text); }
+        .chart-wrap { width: 100%; height: 460px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.925rem; }
+        th {
+            background: #f6f8fb; color: var(--text-secondary);
+            padding: 12px 16px; text-align: center; font-weight: 600;
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;
+            border-bottom: 2px solid var(--border);
+        }
+        td {
+            padding: 12px 16px; text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:hover td { background: #fafbfc; }
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 600; letter-spacing: 0.3px;
+        }
+        .badge-a { background: #dcfce7; color: #166534; }
+        .badge-b { background: #fef9c3; color: #854d0e; }
+        .badge-c { background: #fee2e2; color: #991b1b; }
+        .btn-sm {
+            padding: 7px 18px; font-size: 0.85rem; font-weight: 500;
+            border: 1px solid var(--border); border-radius: 6px;
+            background: var(--card); color: var(--text-secondary);
+            cursor: pointer; transition: all 0.12s;
+        }
+        .btn-sm:hover { border-color: #c4cdd9; color: var(--text); }
+        .replace-card {
+            text-align: center; padding: 28px;
+            border: 2px dashed var(--border); border-radius: var(--radius);
+            margin-bottom: 20px;
+        }
+        .btn-replace {
+            padding: 12px 36px; font-size: 0.95rem; font-weight: 600;
+            color: #fff; border: none; border-radius: 8px; cursor: pointer;
+            transition: all 0.15s; margin-top: 12px;
+        }
+        .btn-replace.green { background: var(--green); }
+        .btn-replace.amber { background: var(--amber); }
+        .loading, .error-message { padding: 16px; border-radius: 8px; text-align: center; }
+        .loading { color: var(--text-secondary); }
+        .error-message { background: #fef2f2; color: #991b1b; }
+        footer {
+            text-align: center; padding: 24px; color: var(--text-secondary);
+            font-size: 0.85rem; margin-top: 8px;
+        }
+{% endblock %}
+
+{% block content %}
+        <div id="loading-message" class="loading">加载中…</div>
+        <div id="error-message" class="error-message" style="display:none;"></div>
+
+        <!-- 模型替换 -->
+        <div id="replace-section" class="replace-card" style="display:none;">
+            <p id="replace-message" style="font-size:1rem;margin-bottom:4px;"></p>
+            <button id="replace-btn" class="btn-replace"></button>
+            <p style="margin-top:8px;color:var(--text-secondary);font-size:0.8rem;">替换后预测将使用新模型</p>
+        </div>
+
+        <!-- 模型指标表格 -->
+        <div class="card">
+            <div class="card-title" style="margin-bottom:16px;">当前模型评估指标（测试集）</div>
+            <div style="overflow-x:auto;">
+            <table>
+                <thead><tr><th>指标</th><th>MAE</th><th>MSE</th><th>RMSE</th><th>R²</th><th>评价</th></tr></thead>
+                <tbody id="metrics-table-body"><tr><td colspan="6">加载中…</td></tr></tbody>
+            </table>
+            </div>
+            <p style="margin-top:12px;color:var(--text-secondary);font-size:0.8rem;">
+                R²：>0.8 优秀　0.5~0.8 一般　0~0.5 较弱　<0 比均值预测更差
+            </p>
+        </div>
+
+        <!-- 测试集预测 vs 真实值 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">测试集预测 vs 真实值</span>
+                <select id="test-metric-select" class="btn-sm" style="cursor:pointer;">
+                    <option value="temperature_max">最高温度</option>
+                    <option value="temperature_min">最低温度</option>
+                    <option value="temperature_mean">平均温度</option>
+                    <option value="humidity_mean">湿度</option>
+                    <option value="wind_speed_max">风速</option>
+                    <option value="precipitation">降水量</option>
+                </select>
+            </div>
+            <div class="chart-wrap" id="test-compare-chart"></div>
+        </div>
+
+        <!-- 损失曲线 -->
+        <div class="card">
+            <div class="card-title" style="margin-bottom:16px;">训练损失曲线</div>
+            <div class="chart-wrap" id="loss-chart"></div>
+        </div>
+
+        <footer>天气预测系统 · 模型评估 · <span id="update-time"></span></footer>
+{% endblock %}
+
+{% block scripts %}
+        <script>
+        document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+
+        function objToArray(obj) {
+            return Object.entries(obj).map(([metric, value]) => ({ metric, value }));
+        }
+        function toMAEData(array) {
+            return array.map(item => {
+                let status, badge;
+                if (item.value <= 2.0) { status = '优秀'; badge = 'badge-a'; }
+                else if (item.value <= 4.0) { status = '良好'; badge = 'badge-b'; }
+                else { status = '一般'; badge = 'badge-c'; }
+                return { ...item, status, badge };
+            });
+        }
+
+        const METRIC_NAMES = {
+            'temperature_max':'最高温度','temperature_min':'最低温度','temperature_mean':'平均温度',
+            'humidity_mean':'湿度','wind_speed_max':'风速','precipitation':'降水量'
+        };
+        function fm(m) { return METRIC_NAMES[m] || m; }
+
+        function renderMetricsTable(metricsData) {
+            const tbody = document.getElementById('metrics-table-body');
+            tbody.innerHTML = '';
+            const order = ['temperature_max','temperature_min','temperature_mean',
+                           'humidity_mean','wind_speed_max','precipitation'];
+            const rows = order.filter(k => metricsData[k]).map(k => ({ key: k, ...metricsData[k] }));
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6">无数据</td></tr>'; return; }
+            rows.forEach(item => {
+                let r2 = item.R2;
+                let status, badge;
+                if (r2 >= 0.8) { status = '优秀'; badge = 'badge-a'; }
+                else if (r2 >= 0.5) { status = '一般'; badge = 'badge-b'; }
+                else if (r2 >= 0) { status = '较弱'; badge = 'badge-c'; }
+                else { status = '无效'; badge = 'badge-c'; }
+                tbody.insertAdjacentHTML('beforeend',
+                    `<tr><td><strong>${fm(item.key)}</strong></td>
+                     <td>${item.MAE.toFixed(2)}</td>
+                     <td>${item.MSE.toFixed(2)}</td>
+                     <td>${item.RMSE.toFixed(2)}</td>
+                     <td style="font-weight:600;">${r2.toFixed(4)}</td>
+                     <td><span class="badge ${badge}">${status}</span></td></tr>`);
+            });
+        }
+
+        function renderLossChart(historyData) {
+            if (typeof echarts === 'undefined') { console.warn('echarts 未加载，跳过损失曲线渲染'); return; }
+            const chart = echarts.init(document.getElementById('loss-chart'));
+            if (!historyData || !historyData.loss || !historyData.loss.length) {
+                chart.setOption({ title: { text:'暂无训练历史', x:'center', y:'center' } }); return;
+            }
+            const epochs = Array.from({length:historyData.loss.length},(_,i)=>i+1);
+            chart.setOption({
+                tooltip: { trigger:'axis' },
+                legend: { data:['训练损失','验证损失'], bottom:0 },
+                grid: { left:'6%', right:'4%', top:'8%', bottom:'12%', containLabel:true },
+                xAxis: { type:'category', data:epochs.map(e=>`${e}`), name:'Epoch', nameLocation:'center', nameGap:28 },
+                yAxis: { type:'value', name:'Loss', splitLine:{lineStyle:{type:'dashed',color:'#e8ecf1'}} },
+                series: [
+                    { name:'训练损失', type:'line', data:historyData.loss, smooth:false, symbol:'circle', symbolSize:6,
+                      lineStyle:{width:2,color:'#2563eb'}, itemStyle:{color:'#2563eb'} },
+                    { name:'验证损失', type:'line', data:historyData.val_loss, smooth:false, symbol:'circle', symbolSize:6,
+                      lineStyle:{width:2,color:'#dc2626'}, itemStyle:{color:'#dc2626'} }
+                ]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function showError(msg) { document.getElementById('error-message').textContent=msg; document.getElementById('error-message').style.display='block'; document.getElementById('loading-message').style.display='none'; }
+        function hideError() { document.getElementById('error-message').style.display='none'; }
+        function hideLoading() { document.getElementById('loading-message').style.display='none'; }
+
+        let cachedTestData = null;
+
+        function renderTestCompareChart(metric) {
+            const dom = document.getElementById('test-compare-chart');
+            if (!cachedTestData || !cachedTestData.dates || !cachedTestData.dates.length) {
+                dom.innerHTML = '<div style="text-align:center;padding:60px;color:#999;">暂无测试集对比数据<br><small>请先训练模型以生成测试集预测</small></div>'; return;
+            }
+            if (typeof echarts === 'undefined') { console.warn('echarts 未加载，跳过测试对比渲染'); return; }
+            const d = cachedTestData;
+            const chart = echarts.init(dom);
+            const series = [
+                {
+                    name: '真实值', type: 'line', data: d.actual[metric],
+                    symbol: 'none', lineStyle: { width: 2.5, color: '#1a1a2e' },
+                },
+                {
+                    name: '当前模型', type: 'line', data: d.current[metric],
+                    symbol: 'none', lineStyle: { width: 1.8, color: '#2563eb', type: 'dashed' },
+                },
+            ];
+            if (d.best && d.best[metric]) {
+                series.push({
+                    name: '历史最佳', type: 'line', data: d.best[metric],
+                    symbol: 'none', lineStyle: { width: 2, color: '#16a34a', type: 'dashed' },
+                });
+            }
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { data: series.map(s => s.name), bottom: 0 },
+                grid: { left: '4%', right: '4%', top: '6%', bottom: '12%', containLabel: true },
+                xAxis: {
+                    type: 'category', data: d.dates,
+                    axisLabel: {
+                        fontSize: 10, rotate: 0,
+                        formatter: v => v.substring(5),
+                        interval: Math.floor(d.dates.length / 8),
+                    },
+                },
+                yAxis: {
+                    type: 'value', name: fm(metric),
+                    splitLine: { lineStyle: { type: 'dashed', color: '#e8ecf1' } },
+                },
+                dataZoom: [{ type: 'inside', start: 0, end: 100 }],
+                series: series,
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        async function loadTestComparison() {
+            try {
+                const r = await fetch('/api/test_comparison');
+                if (r.ok) {
+                    cachedTestData = await r.json();
+                    const sel = document.getElementById('test-metric-select');
+                    renderTestCompareChart(sel.value);
+                }
+            } catch(e) { console.error('加载测试对比数据失败:', e); }
+        }
+
+        async function loadData() {
+            try {
+                const metricsResp = await fetch('/api/model_metrics');
+                if (metricsResp.ok) {
+                    const d = await metricsResp.json();
+                    renderMetricsTable(d.metrics || {});
+                } else {
+                    renderMetricsTable({});
+                }
+                const histResp = await fetch('/model_evaluation_data');
+                if (histResp.ok) { const d = await histResp.json(); renderLossChart(d.loss_history); }
+                else renderLossChart(null);
+                hideLoading(); hideError();
+            } catch(e) { console.error(e); showError('加载失败: '+e.message); hideLoading(); }
+        }
+
+        let pendingCurr=null, pendingBest=null;
+        async function checkPending() {
+            try {
+                const r = await fetch('/api/pending_model'); const d = await r.json();
+                if (d.current_avg_mae && d.comparison) {
+                    pendingCurr=d.current_avg_mae; pendingBest=d.best_avg_mae;
+                    if (pendingBest===null) { document.getElementById('replace-section').style.display='none'; return; }
+                    document.getElementById('replace-section').style.display='block';
+                    const btn=document.getElementById('replace-btn');
+                    if (pendingCurr<pendingBest) {
+                        document.getElementById('replace-message').innerHTML=`当前 MAE <strong style="color:#16a34a">${pendingCurr}</strong> 优于历史最佳 <strong>${pendingBest}</strong>，可替换`;
+                        btn.className='btn-replace green'; btn.textContent='设为历史最佳模型';
+                    } else {
+                        document.getElementById('replace-message').innerHTML=`当前 MAE <strong style="color:#d97706">${pendingCurr}</strong> 未超越历史最佳 <strong>${pendingBest}</strong>，仍可手动替换`;
+                        btn.className='btn-replace amber'; btn.textContent='仍然替换为最佳模型';
+                    }
+                } else document.getElementById('replace-section').style.display='none';
+            } catch(e) {}
+        }
+        document.getElementById('replace-btn').addEventListener('click', async () => {
+            if (!confirm('确定替换历史最佳模型？')) return;
+            const btn=document.getElementById('replace-btn'); btn.disabled=true; btn.textContent='替换中…';
+            try {
+                const r=await fetch('/api/replace_best_model',{method:'POST'}); const d=await r.json();
+                if (d.success) { alert('替换成功'); location.reload(); }
+                else { alert('失败: '+d.message); btn.disabled=false; }
+            } catch(e) { alert('请求失败: '+e.message); btn.disabled=false; }
+        });
+
+        document.getElementById('test-metric-select').addEventListener('change', function() {
+            renderTestCompareChart(this.value);
+        });
+
+        document.addEventListener('DOMContentLoaded', () => { loadData(); checkPending(); loadTestComparison(); });
+    </script>
+{% endblock %}
