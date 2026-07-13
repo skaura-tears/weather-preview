@@ -36,7 +36,7 @@ pip install -r requirements.txt
 python 获取数据.py 
 ```
 
-### 3. 训练模型（可选：跳过则使用已有模型）
+### 3. 训练模型
 
 ```bash
 python train_model.py
