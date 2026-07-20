@@ -126,6 +126,7 @@ def fetch_nanyang_weather(start_date, end_date):
 
     df_raw = pd.DataFrame(data=daily_data)
     print(f"原始数据记录数：{len(df_raw)}")
+    os.makedirs('data/csv',exist_ok=True)
     df_raw.to_csv('data/csv/原始数据.csv', index=False)#index=False表示保存的时候去掉多余的数字列
 
     # 调用预处理函数
