@@ -133,6 +133,7 @@ def train_model(skip_cv=False):
     for i, col in enumerate(TARGET_COLS):
         data = val_df[[col]].values
         scaled_y_val[:, i] = scaler_y[col].transform(data).flatten()
+    makedirs('data/models',exist_ok=True)
     joblib.dump(scaler_X, 'data/models/scaler_X.pkl')
     joblib.dump(scaler_y, 'data/models/scaler_y.pkl')
 
@@ -183,6 +184,7 @@ def train_model(skip_cv=False):
                                     scoring=scorer, random_state=22, n_jobs=1, verbose=1)#  n_iter=6：随机抽取6组参数来试
         search.fit(X_train, y_train)
         best_params = search.best_params_
+        os.makedirs('data/json',exist_ok=True)
         with open(best_params_file, 'w') as f:
             json.dump(best_params, f, ensure_ascii=False, indent=2)#保存最优参数
         print(f"最佳参数: {best_params}")
