@@ -4,7 +4,7 @@ import requests_cache
 import pandas as pd
 from retry_requests import retry
 from datetime import datetime, timedelta
-
+import os
 # 设置南阳市的经纬度（南阳中心坐标）
 LATITUDE = 32.9907
 LONGITUDE = 112.5283
